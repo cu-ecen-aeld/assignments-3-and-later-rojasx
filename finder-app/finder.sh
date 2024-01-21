@@ -1,3 +1,4 @@
+#!/bin/bash
 # Will use this multiple times
 help_statement="Usage: finder.sh <filesdir> <searchstr>"
 
@@ -18,10 +19,10 @@ fi
 # Filepath variable, first argument
 filesdir="$1"
 searchstr="$2"
-echo "Using filesdir: $filesdir"
-echo "Using searchstr: $searchstr"
 
 search_output=$(find "$filesdir" -type f -exec grep "$searchstr" {} +)
+
+# echo $search_output
 
 # Count the number of matching files (x)
 trimmed=$(cut -d: -f1 <<< "$search_output")
