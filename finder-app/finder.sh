@@ -22,8 +22,6 @@ searchstr="$2"
 
 search_output=$(find "$filesdir" -type f -exec grep "$searchstr" {} +)
 
-# echo $search_output
-
 # Count the number of matching files (x)
 trimmed=$(cut -d: -f1 <<< "$search_output")
 sorted=$(sort -u <<< "$trimmed")
