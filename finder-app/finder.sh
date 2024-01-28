@@ -22,15 +22,13 @@ searchstr="$2"
 
 search_output=$(find "$filesdir" -type f -exec grep "$searchstr" {} +)
 
-# Count the number of matching files (x)
-trimmed=$(cut -d: -f1 <<< "$search_output")
-sorted=$(sort -u <<< "$trimmed")
-x=$(wc -l <<< "$sorted")
+# Count the number of files in the dir
+x=$(find "$filesdir" -type f | wc -l)
 # x=$(echo "$search_output" | cut -d: -f1 | sort -u | wc -l)
 
 # Count the total number of matching lines (y)
 y=$(wc -l <<< "$search_output")
 # y=$(echo "$search_output" | wc -l)
 
-# # Output the results
+# Output the results
 echo "The number of files are $x and the number of matching lines are $y"
