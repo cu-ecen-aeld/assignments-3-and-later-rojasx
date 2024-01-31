@@ -1,3 +1,7 @@
+#define _XOPEN_SOURCE
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/wait.h>
 #include "systemcalls.h"
 
 /**
@@ -16,7 +20,12 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
+    int ret;
+    ret = system(cmd);
+    if (ret == -1)
+    {
+        return false;
+    }
     return true;
 }
 
@@ -47,7 +56,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
+    // command[count] = command[count];
 
 /*
  * TODO:
@@ -58,9 +67,40 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    pid_t pid;
+    int status;
+    pid = fork();
+    if (pid == -1)
+    {
+        perror("Fork failed");
+        return false;
+    }
+    else if (pid == 0)
+    {
+        // Execute command
+        int ret;
+        ret = execv(command[0], command);
+        if ( ret == -1)
+        {
+            perror("Execv failed");
+            exit(-1);
+        }
+    }
+
+    // Check on wait and if good check on exit status of child process
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        perror("wait failed");
+        return -1;
+    }
+    else if (WIFEXITED(status))
+    {
+        // Just return false as specified, not the real exit status
+        // return WEXITSTATUS(status);
+        return false;
+    }
 
     va_end(args);
-
     return true;
 }
 
