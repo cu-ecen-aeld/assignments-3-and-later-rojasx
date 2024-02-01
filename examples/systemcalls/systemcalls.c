@@ -2,6 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 #include "systemcalls.h"
 
 /**
@@ -54,21 +55,13 @@ bool do_exec(int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    // command[count] = command[count];
 
-/*
- * TODO:
- *   Execute a system command by calling fork, execv(),
- *   and wait instead of system (see LSP page 161).
- *   Use the command[0] as the full path to the command to execute
- *   (first argument to execv), and use the remaining arguments
- *   as second argument to the execv() command.
- *
-*/
+    // Xavier's code
+    // ------------------------
     pid_t pid;
     int status;
+
+    // Fork and check
     pid = fork();
     if (pid == -1)
     {
@@ -78,12 +71,10 @@ bool do_exec(int count, ...)
     else if (pid == 0)
     {
         // Execute command
-        int ret;
-        ret = execv(command[0], command);
-        if ( ret == -1)
+        if (execv(command[0], command) == -1)
         {
             perror("Execv failed");
-            exit(-1);
+            exit(EXIT_FAILURE);
         }
     }
 
@@ -91,14 +82,18 @@ bool do_exec(int count, ...)
     if (waitpid(pid, &status, 0) == -1)
     {
         perror("wait failed");
-        return -1;
-    }
-    else if (WIFEXITED(status))
-    {
-        // Just return false as specified, not the real exit status
-        // return WEXITSTATUS(status);
+        // printf("\nStatus of child process was %d\n", status);
         return false;
     }
+    else if ((WEXITSTATUS(status) != 0) || WIFSIGNALED(status))
+    {
+        // printf("\nxStatus of child process wasx %d\n", WEXITSTATUS(status));
+        // printf("command was %s \n", command[0]);
+        printf("Exit status of child process non-zero or exited with WIFSIGNALED.\n");
+        return false;
+    }
+    // ------------------------
+    // Xavier's code
 
     va_end(args);
     return true;
@@ -120,18 +115,56 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         command[i] = va_arg(args, char *);
     }
     command[count] = NULL;
-    // this line is to avoid a compile warning before your implementation is complete
-    // and may be removed
-    command[count] = command[count];
 
+    // ------------------------
+    // Xavier's code
+    pid_t pid;
+    int status;
+    int fd;
 
-/*
- * TODO
- *   Call execv, but first using https://stackoverflow.com/a/13784315/1446624 as a refernce,
- *   redirect standard out to a file specified by outputfile.
- *   The rest of the behaviour is same as do_exec()
- *
-*/
+    // Open and check file
+    fd = open(outputfile, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+    if (fd < 0)
+    {
+        perror("Failed to open outputfile");
+        return false;
+    }
+
+    // Fork and check
+    pid = fork();
+    if (pid == -1)
+    {
+        perror("Fork failed");
+        return false;
+    }
+    else if (pid == 0)
+    {
+        // dup2 to redirect stdout!
+        dup2(fd, 1);
+        if ( execv(command[0], command) == -1)
+        {
+            perror("Execv failed");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    // Check on wait and if good check on exit status of child process
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        perror("wait failed");
+        // printf("\nStatus of child process was %d\n", status);
+        return false;
+    }
+    else if ((WEXITSTATUS(status) != 0) || WIFSIGNALED(status))
+    {
+        // printf("\nxStatus of child process wasx %d\n", WEXITSTATUS(status));
+        // printf("command was %s \n", command[0]);
+        printf("Exit status of child process non-zero or exited with WIFSIGNALED.\n");
+        return false;
+    }
+    close(fd);
+    // ------------------------
+    // Xavier's code
 
     va_end(args);
 
