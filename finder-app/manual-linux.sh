@@ -110,6 +110,17 @@ cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linu
 cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libc.so.6 lib64/
 
 ############################################
+# Just for moving assgn files into rootfs before compressing
+# Can remove
+cd "${OUTDIR}/rootfs"
+echo "Moving assignment files"
+cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/writer home/
+cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/finder.sh home/
+cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/finder-test.sh home/
+cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/autorun-qemu.sh home/
+cp -r /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/conf/ home/
+
+############################################
 echo "Making device nodes!"
 
 sudo mknod -m 666 dev/null c 1 3
