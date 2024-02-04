@@ -24,6 +24,9 @@ fi
 mkdir -p "${OUTDIR}"
 
 cd "$OUTDIR"
+############################################
+# Get linux
+
 if [ ! -d "${OUTDIR}/linux-stable" ]; then
     #Clone only if the repository does not exist.
 	echo "CLONING GIT LINUX STABLE VERSION ${KERNEL_VERSION} IN ${OUTDIR}"
@@ -38,14 +41,16 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
     make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
+    # make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
 fi
 
+############################################
 echo "Adding the Image in outdir"
     
 cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}
 
+############################################
 echo "Creating the staging directory for the root filesystem"
 
 cd "$OUTDIR"
@@ -55,6 +60,7 @@ then
     sudo rm  -rf ${OUTDIR}/rootfs
 fi
 
+############################################
 echo "Creating rootfs!"
 
 cd "$OUTDIR"
@@ -64,6 +70,8 @@ mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
 mkdir -p usr/bin usr/lib usr/sbin
 mkdir -p var/log
 
+############################################
+# Busybox
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
 then
@@ -75,6 +83,7 @@ else
     cd busybox
 fi
 
+############################################
 echo "Building busybox!"
 
 make distclean
@@ -85,23 +94,35 @@ echo "Build completed!"
 make CONFIG_PREFIX=/tmp/aeld/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
 echo "Install completed!"
 
+############################################
 echo "Library dependencies"
 
 cd "${OUTDIR}/rootfs"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
+echo "Copying libraries from arm-cross-compiler"
+cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib/ld-linux-aarch64.so.1 lib64/
+cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libm.so.6 lib64/
+cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libresolv.so.2 lib64/
+cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libc.so.6 lib64/
+
+############################################
 echo "Making device nodes!"
 
 sudo mknod -m 666 dev/null c 1 3
 sudo mknod -m 600 dev/console c 5 1
 
+############################################
+echo "Ownership of rootfs to root"
+
+cd "$OUTDIR"
+sudo chown -R root:root rootfs 
+
+############################################
 echo "Making and zipping writer utility!"
 
+cd "${OUTDIR}/rootfs"
 find . | cpio -H newc -ov --owner root:root > /tmp/aeld/initramfs.cpio
 cd "$OUTDIR"
 gzip -f initramfs.cpio
-
-
-# TODO: Chown the root directory
-
