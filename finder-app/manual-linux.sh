@@ -99,6 +99,8 @@ make CONFIG_PREFIX=/tmp/aeld/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} 
 ############################################
 echo "Library dependencies"
 
+cd "${OUTDIR}/rootfs/bin"
+sudo chown -R root:root *
 cd "${OUTDIR}/rootfs"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
