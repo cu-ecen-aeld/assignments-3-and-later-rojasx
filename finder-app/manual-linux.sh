@@ -15,115 +15,122 @@ CROSS_COMPILE=aarch64-none-linux-gnu-
 SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
 echo "${SYSROOT}"
 
-if [ $# -lt 1 ]
-then
-	echo "Using default directory ${OUTDIR} for output"
-else
-	OUTDIR=$1
-	echo "Using passed directory ${OUTDIR} for output"
-fi
+# if [ $# -lt 1 ]
+# then
+# 	echo "Using default directory ${OUTDIR} for output"
+# else
+# 	OUTDIR=$1
+# 	echo "Using passed directory ${OUTDIR} for output"
+# fi
 
-mkdir -p "${OUTDIR}"
+# mkdir -p "${OUTDIR}"
 
-cd "$OUTDIR"
-############################################
-# Get linux
+# cd "$OUTDIR"
+# ############################################
+# # Get linux
 
-if [ ! -d "${OUTDIR}/linux-stable" ]; then
-    #Clone only if the repository does not exist.
-	echo "CLONING GIT LINUX STABLE VERSION ${KERNEL_VERSION} IN ${OUTDIR}"
-	git clone ${KERNEL_REPO} --depth 1 --single-branch --branch ${KERNEL_VERSION}
-else
-    echo "Already has linux-stable"
-fi
+# if [ ! -d "${OUTDIR}/linux-stable" ]; then
+#     #Clone only if the repository does not exist.
+# 	echo "CLONING GIT LINUX STABLE VERSION ${KERNEL_VERSION} IN ${OUTDIR}"
+# 	git clone ${KERNEL_REPO} --depth 1 --single-branch --branch ${KERNEL_VERSION}
+# else
+#     echo "Already has linux-stable"
+# fi
 
-if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
-    cd linux-stable
-    echo "Checking out version ${KERNEL_VERSION}"
-    git checkout ${KERNEL_VERSION}
+# if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
+#     cd linux-stable
+#     echo "Checking out version ${KERNEL_VERSION}"
+#     git checkout ${KERNEL_VERSION}
 
-    # Kernel build steps
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
-    make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
-    # make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
-else
-    echo "Already has a valid Image"
-fi
+#     # Kernel build steps
+#     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
+#     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+#     make -j4 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
+#     # make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
+#     make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
+# else
+#     echo "Already has a valid Image"
+# fi
 
-############################################
-echo "Adding the Image in outdir"
+# ############################################
+# echo "Adding the Image in outdir"
     
-cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}
+# cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}
 
-############################################
-echo "Creating the staging directory for the root filesystem"
+# ############################################
+# echo "Creating the staging directory for the root filesystem"
 
-cd "$OUTDIR"
-if [ -d "${OUTDIR}/rootfs" ]
-then
-	echo "Deleting rootfs directory at ${OUTDIR}/rootfs and starting over"
-    sudo rm  -rf ${OUTDIR}/rootfs
-fi
+# cd "$OUTDIR"
+# if [ -d "${OUTDIR}/rootfs" ]
+# then
+# 	echo "Deleting rootfs directory at ${OUTDIR}/rootfs and starting over"
+#     sudo rm  -rf ${OUTDIR}/rootfs
+# fi
 
-############################################
-echo "Creating rootfs!"
+# ############################################
+# echo "Creating rootfs!"
 
-cd "$OUTDIR"
-mkdir -p "rootfs"
-cd "rootfs"
-mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
-mkdir -p usr/bin usr/lib usr/sbin
-mkdir -p var/log
+# cd "$OUTDIR"
+# mkdir -p "rootfs"
+# cd "rootfs"
+# mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
+# mkdir -p usr/bin usr/lib usr/sbin
+# mkdir -p var/log
 
-############################################
-# Busybox
-cd "$OUTDIR"
-if [ ! -d "${OUTDIR}/busybox" ]
-then
-    echo "Getting busybox!"
-    git clone git://busybox.net/busybox.git
-    cd busybox
-    git checkout ${BUSYBOX_VERSION}
-else
-    cd busybox
-fi
+# ############################################
+# # Busybox
+# cd "$OUTDIR"
+# if [ ! -d "${OUTDIR}/busybox" ]
+# then
+#     echo "Getting busybox!"
+#     git clone git://busybox.net/busybox.git
+#     cd busybox
+#     git checkout ${BUSYBOX_VERSION}
+# else
+#     cd busybox
+# fi
 
-############################################
-echo "Building busybox!"
+# ############################################
+# echo "Building busybox!"
 
-make distclean
-make defconfig
-make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
-make CONFIG_PREFIX=/tmp/aeld/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
+# make distclean
+# make defconfig
+# make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
+# make CONFIG_PREFIX=/tmp/aeld/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
 
-############################################
-echo "Library dependencies"
+# ############################################
+# echo "Library dependencies"
 
-# cd "${OUTDIR}/rootfs/bin"
-# sudo chown -R root:root *
-# cd "${OUTDIR}/rootfs"
-# ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
-# ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+# # cd "${OUTDIR}/rootfs/bin"
+# # sudo chown -R root:root *
+# # cd "${OUTDIR}/rootfs"
+# # ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
+# # ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
-echo "Copying libraries from arm-cross-compiler"
-echo "${SYSROOT}"
-cp -a "${SYSROOT}/lib/ld-linux-aarch64.so.1" "${OUTDIR}/rootfs/lib/"
-cp -a "${SYSROOT}/lib64/libm.so.6" "${OUTDIR}/rootfs/lib64/"
-cp -a "${SYSROOT}/lib64/libresolv.so.2" "${OUTDIR}/rootfs/lib64/"
-cp -a "${SYSROOT}/lib64/libc.so.6" "${OUTDIR}/rootfs/lib64/"
+# echo "Copying libraries from arm-cross-compiler"
+# echo "${SYSROOT}"
+# cp -a "${SYSROOT}/lib/ld-linux-aarch64.so.1" "${OUTDIR}/rootfs/lib/"
+# cp -a "${SYSROOT}/lib64/libm.so.6" "${OUTDIR}/rootfs/lib64/"
+# cp -a "${SYSROOT}/lib64/libresolv.so.2" "${OUTDIR}/rootfs/lib64/"
+# cp -a "${SYSROOT}/lib64/libc.so.6" "${OUTDIR}/rootfs/lib64/"
 
 ############################################
 # Just for moving assgn files into rootfs before compressing
 echo "Moving assignment files"
 
-cd "${OUTDIR}/rootfs"
-cp "${FINDER_APP_DIR}/writer" home/
-cp "${FINDER_APP_DIR}/finder.sh" home/
-cp "${FINDER_APP_DIR}/finder-test.sh" home/
-cp "${FINDER_APP_DIR}/autorun-qemu.sh" home/
-cp -r "${FINDER_APP_DIR}/conf/" home/
+# debug stuff
+echo "Working dir is:"
+echo $PWD 
+echo "FINDER APP DIR is:"
+echo $FINDER_APP_DIR
+
+# debug stuff
+
+cp "${FINDER_APP_DIR}/writer" "${OUTDIR}/rootfs/home/"
+cp "${FINDER_APP_DIR}/finder.sh" "${OUTDIR}/rootfs/home/"
+cp "${FINDER_APP_DIR}/finder-test.sh" "${OUTDIR}/rootfs/home/"
+cp "${FINDER_APP_DIR}/autorun-qemu.sh" "${OUTDIR}/rootfs/home/"
+cp -r "${FINDER_APP_DIR}/conf/" "${OUTDIR}/rootfs/home/"
 
 ############################################
 echo "Making device nodes!"
