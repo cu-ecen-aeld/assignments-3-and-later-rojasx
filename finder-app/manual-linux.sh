@@ -119,10 +119,18 @@ echo "${SYSROOT}"
 echo "Moving assignment files"
 
 # debug stuff
-echo "Working dir is:"
-echo $PWD 
+echo
+echo
+echo "SYSROOT is"
+echo "${SYSROOT}"
 echo "FINDER APP DIR is:"
 echo $FINDER_APP_DIR
+echo "Working dir is:"
+echo $PWD 
+echo "My contents are:"
+ls
+echo
+echo
 
 # debug stuff
 
