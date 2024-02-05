@@ -12,6 +12,8 @@ BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
 CROSS_COMPILE=aarch64-none-linux-gnu-
+SYSROOT=$(${CROSS_COMPILE}gcc -print-sysroot)
+echo "${SYSROOT}"
 
 if [ $# -lt 1 ]
 then
@@ -106,21 +108,22 @@ echo "Library dependencies"
 # ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 echo "Copying libraries from arm-cross-compiler"
-cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib/ld-linux-aarch64.so.1 "${OUTDIR}/rootfs/lib/"
-cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libm.so.6 "${OUTDIR}/rootfs/lib64/"
-cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libresolv.so.2 "${OUTDIR}/rootfs/lib64/"
-cp /home/xavier/arm-cross-compiler/gcc-arm-10.2-2020.11-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/libc/lib64/libc.so.6 "${OUTDIR}/rootfs/lib64/"
+echo "${SYSROOT}"
+cp -a "${SYSROOT}/lib/ld-linux-aarch64.so.1" "${OUTDIR}/rootfs/lib/"
+cp -a "${SYSROOT}/lib64/libm.so.6" "${OUTDIR}/rootfs/lib64/"
+cp -a "${SYSROOT}/lib64/libresolv.so.2" "${OUTDIR}/rootfs/lib64/"
+cp -a "${SYSROOT}/lib64/libc.so.6" "${OUTDIR}/rootfs/lib64/"
 
 ############################################
 # Just for moving assgn files into rootfs before compressing
-# Can remove
-cd "${OUTDIR}/rootfs"
 echo "Moving assignment files"
-cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/writer home/
-cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/finder.sh home/
-cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/finder-test.sh home/
-cp /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/autorun-qemu.sh home/
-cp -r /home/xavier/classes/aesd/assignment-1-rojasx/finder-app/conf/ home/
+
+cd "${OUTDIR}/rootfs"
+cp "${FINDER_APP_DIR}/writer" home/
+cp "${FINDER_APP_DIR}/finder.sh" home/
+cp "${FINDER_APP_DIR}/finder-test.sh" home/
+cp "${FINDER_APP_DIR}/autorun-qemu.sh" home/
+cp -r "${FINDER_APP_DIR}/conf/" home/
 
 ############################################
 echo "Making device nodes!"
@@ -138,6 +141,6 @@ sudo chown -R root:root *
 echo "Making and zipping writer utility!"
 
 cd "${OUTDIR}/rootfs"
-find . | cpio -H newc -ov --owner root:root > /tmp/aeld/initramfs.cpio
+find . | cpio -H newc -ov --owner root:root > "${OUTDIR}/initramfs.cpio"
 cd "$OUTDIR"
 gzip -f initramfs.cpio
