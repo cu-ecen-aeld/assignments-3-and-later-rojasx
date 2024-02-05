@@ -33,10 +33,7 @@ if [ ! -d "${OUTDIR}/linux-stable" ]; then
     #Clone only if the repository does not exist.
 	echo "CLONING GIT LINUX STABLE VERSION ${KERNEL_VERSION} IN ${OUTDIR}"
 	git clone ${KERNEL_REPO} --depth 1 --single-branch --branch ${KERNEL_VERSION}
-else
-    echo "Already has linux-stable"
 fi
-
 if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     cd linux-stable
     echo "Checking out version ${KERNEL_VERSION}"
@@ -82,8 +79,7 @@ mkdir -p var/log
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
 then
-    echo "Getting busybox!"
-    git clone git://busybox.net/busybox.git
+git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
 else
@@ -96,16 +92,14 @@ echo "Building busybox!"
 make distclean
 make defconfig
 make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
-make CONFIG_PREFIX=/tmp/aeld/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
+make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install
 
 ############################################
 echo "Moving library dependencies!"
 
-# cd "${OUTDIR}/rootfs/bin"
-# sudo chown -R root:root *
-# cd "${OUTDIR}/rootfs"
-# ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
-# ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
+cd "${OUTDIR}/rootfs"
+${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
+${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 echo "Copying libraries from arm-cross-compiler!"
 echo "${SYSROOT}"
