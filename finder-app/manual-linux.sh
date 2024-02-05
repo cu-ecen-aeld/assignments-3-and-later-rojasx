@@ -116,6 +116,9 @@ echo "${SYSROOT}"
 
 ############################################
 # Just for moving assgn files into rootfs before compressing
+make clean
+make CROSS_COMPILE=${CROSS_COMPILE}
+
 echo "Moving assignment files"
 
 # debug stuff
