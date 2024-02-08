@@ -66,11 +66,11 @@ bool start_thread_obtaining_mutex(pthread_t *thread, pthread_mutex_t *mutex, int
         return false;
     }
 
-    // non-blocking
-    if (pthread_detach(*thread) != 0)
-    {
-        return false;
-    }
+    // // non-blocking
+    // if (pthread_detach(*thread) != 0)
+    // {
+    //     return false;
+    // }
 
     return true;
 }
