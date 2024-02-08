@@ -62,6 +62,9 @@ dohttps://github.com/cu-ecen-aeld/assignments-3-and-later-rojasx.git
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
+# New file gets output
+echo $OUTPUTSTRING > /tmp/assignment4-result.txt
+
 set +e
 echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
 if [ $? -eq 0 ]; then
