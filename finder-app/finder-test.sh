@@ -8,6 +8,10 @@ set -u
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
+CALL_DIR=$PWD
+BASE_DIR=$(dirname $0)
+cd $BASE_DIR
+
 username=$(cat conf/username.txt)
 
 if [ $# -lt 3 ]
@@ -32,7 +36,8 @@ echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
-assignment=`cat conf/assignment.txt`
+# assignment=`cat conf/assignment.txt`
+assignment=$(cat ${CALL_DIR}/conf/assignment.txt)
 
 if [ $assignment != 'assignment1' ]
 then
@@ -53,13 +58,7 @@ fi
 # make
 
 for i in $( seq 1 $NUMFILES)
-do
-	# ./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
-	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
-done
-
-OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
-
+dohttps://github.com/cu-ecen-aeld/assignments-3-and-later-rojasx.git
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
