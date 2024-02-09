@@ -12,10 +12,10 @@ CALL_DIR=$PWD
 BASE_DIR=$(dirname $0)
 
 echo $BASE_DIR
-if [$BASE_DIR != "finder-app"];then
+if [$(basename $BASE_DIR) != "finder-app" ]; then
 	# Must be in etc
 	echo "Changing base dir to etc/finder-app"
-	$BASE_DIR=/etc/finder-app
+	BASE_DIR=/etc/finder-app
 fi
 
 cd $BASE_DIR
@@ -59,11 +59,12 @@ then
 	else
 		exit 1
 	fi
+else
+	echo "Removing the old writer utility and compiling as a native application"
+	make clean
+	make
 fi
-#echo "Removing the old writer utility and compiling as a native application"
-# make clean
-# make
-echo $PWD
+
 for i in $( seq 1 $NUMFILES)
 do
 	# ./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
