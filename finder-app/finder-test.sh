@@ -9,17 +9,22 @@ NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
 CALL_DIR=$PWD
-BASE_DIR=$(dirname $0)
-EXE_DIR=$(dirname $0)
+BASE_DIR=$(realpath $(dirname $0))
+EXE_DIR=$(realpath $(dirname $0))
+# BASE_DIR=$(dirname $0)
+# EXE_DIR=$(dirname $0)
 
-echo $BASE_DIR
+# Need to determine if we're on this machine or vm
 if [ $(basename $BASE_DIR) != "finder-app" ]; then
 	# Must be in etc
 	echo "Changing base dir to etc/finder-app"
 	BASE_DIR=/etc/finder-app
 fi
 
+# Very helpful prints, leave it
 cd $BASE_DIR
+echo "Base dir is: ${BASE_DIR}"
+echo "EXE dir is: ${EXE_DIR}"
 username=$(cat conf/username.txt)
 
 if [ $# -lt 3 ]
@@ -38,14 +43,12 @@ else
 fi
 
 MATCHSTR="The number of files are ${NUMFILES} and the number of matching lines are ${NUMFILES}"
-
 echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
-
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
 # assignment=`cat conf/assignment.txt`
-assignment=$(cat conf/assignment.txt)
+assignment=$(cat ${BASE_DIR}/conf/assignment.txt)
 
 if [ $assignment != 'assignment1' ]
 then
