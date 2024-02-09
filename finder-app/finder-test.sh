@@ -12,7 +12,7 @@ CALL_DIR=$PWD
 BASE_DIR=$(dirname $0)
 cd $BASE_DIR
 
-username=$(cat conf/username.txt)
+username=$(cat ${BASE_DIR}/conf/username.txt)
 
 if [ $# -lt 3 ]
 then
@@ -37,7 +37,7 @@ rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
 # assignment=`cat conf/assignment.txt`
-assignment=$(cat ${CALL_DIR}/conf/assignment.txt)
+assignment=$(cat ${BASE_DIR}/conf/assignment.txt)
 
 if [ $assignment != 'assignment1' ]
 then
