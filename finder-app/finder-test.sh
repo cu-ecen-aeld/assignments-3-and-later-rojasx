@@ -10,9 +10,16 @@ WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
 CALL_DIR=$PWD
 BASE_DIR=$(dirname $0)
-cd $BASE_DIR
 
-username=$(cat ${BASE_DIR}/conf/username.txt)
+echo $BASE_DIR
+if [$BASE_DIR != "finder-app"];then
+	# Must be in etc
+	echo "Changing base dir to etc/finder-app"
+	$BASE_DIR=/etc/finder-app
+fi
+
+cd $BASE_DIR
+username=$(cat conf/username.txt)
 
 if [ $# -lt 3 ]
 then
@@ -37,7 +44,7 @@ rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
 # assignment=`cat conf/assignment.txt`
-assignment=$(cat ${BASE_DIR}/conf/assignment.txt)
+assignment=$(cat conf/assignment.txt)
 
 if [ $assignment != 'assignment1' ]
 then
@@ -56,9 +63,16 @@ fi
 #echo "Removing the old writer utility and compiling as a native application"
 # make clean
 # make
-
+echo $PWD
 for i in $( seq 1 $NUMFILES)
-dohttps://github.com/cu-ecen-aeld/assignments-3-and-later-rojasx.git
+do
+	# ./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+done
+
+OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+
+
 # remove temporary directories
 rm -rf /tmp/aeld-data
 
