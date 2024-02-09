@@ -10,6 +10,7 @@ WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
 CALL_DIR=$PWD
 BASE_DIR=$(dirname $0)
+EXE_DIR=$(dirname $0)
 
 echo $BASE_DIR
 if [$(basename $BASE_DIR) != "finder-app" ]; then
@@ -68,10 +69,10 @@ fi
 for i in $( seq 1 $NUMFILES)
 do
 	# ./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
-	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	$EXE_DIR/writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
-OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+OUTPUTSTRING=$(${EXE_DIR}/finder.sh "$WRITEDIR" "$WRITESTR")
 
 
 # remove temporary directories
