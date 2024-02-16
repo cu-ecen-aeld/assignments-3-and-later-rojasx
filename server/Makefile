@@ -1,12 +1,11 @@
 SHELL := /usr/bin/env bash
 
 all: aesdsocket
-	echo all done
 
 aesdsocket: aesdsocket.c 
-	$(CC)  aesdsocket.c -o aesdsocket 
+	$(CC)  aesdsocket.c -o aesdsocket -g3
+
+.PHONY: clean
 
 clean:
-	if [ -f "aesdsocket" ]; then \
-		echo removing aesdsocket; \
-		
+	@rm -rf *.o aesdsocket

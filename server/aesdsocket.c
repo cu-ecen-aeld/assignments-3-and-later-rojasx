@@ -1,74 +1,44 @@
+/*
+    Written by: Xavier Rojas
+
+*/
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <syslog.h>
 #include <signal.h>
-// #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
 #define BACKLOGS 5
 #define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
 
-int writer(const char *writefile, const char *writestr)
-{
-    // Try to open, check for errors
-    fd = open(writefile, (O_RDWR | O_CREAT), S_IRWXU);
-    if (fd == -1)
-    {
-        // Check errno
-        syslog(LOG_ERR, "Error: Failed to open file %s.", writefile);
-        fprintf(stderr, "Error: Failed to open file %s.", writefile);
-        return ERROR;
-    }
-
-    // If we opened, perform write, check for errors
-    bytes_written = write(fd, writestr, len_string);
-    if (bytes_written == -1)
-    {
-        /*error, check errno*/
-        syslog(LOG_ERR, "Error: Failed to write to %s", writefile);
-        fprintf(stderr, "Error: Failed to write to %s", writefile);
-        return ERROR;
-    }
-    else if ((long unsigned int)bytes_written != len_string)
-    {
-        /*Manually output error*/
-        syslog(LOG_ERR, "Error: Partial write! Bytes written != length of writestr.");
-        return ERROR;
-    }
-    else
-    {
-        // Passing log
-        syslog(LOG_DEBUG, "Writing %s to %s", writestr, writefile);
-        printf("Writing %s to %s\n", writestr, writefile);
-    }
-
-    return 0;
-}
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
-void stream_shenanigans(int socket_fd)
+void transaction(int client_fd)
 {
     char recv_buf[1024];
     // char send_buf[1024];
     int send_bytes;
     char* buf_end;
     ssize_t len;
-    int new_len
+    int new_len;
     FILE *output_file;
 
     // Read message into buffer
     memset(recv_buf, 0, sizeof(recv_buf));
-    if ((len = recv(socket_fd, recv_buf, sizeof(recv_buf) - 1, MSG_WAITALL)) < 0)
+    if ((len = recv(client_fd, recv_buf, sizeof(recv_buf) - 1, MSG_WAITALL)) < 0)
     {
         fprintf(stderr, "ERROR calling recv\n");
         exit(ERROR);
     }
+    printf("DEBUG: received client buffer\n");
     
     // Determine end of packet
     buf_end = (char *)memchr(recv_buf, '\n', len);
@@ -88,9 +58,11 @@ void stream_shenanigans(int socket_fd)
     }
     fprintf(output_file, "%.*s\n", new_len, recv_buf);
     fclose(output_file);
+    printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
     // Send back contents of output file
+    int file_size;
     output_file = fopen(OUTPUT_FILE_PATH, "r");
     if (!output_file)
     {
@@ -101,6 +73,7 @@ void stream_shenanigans(int socket_fd)
     fseek(output_file, 0, SEEK_END);
     file_size = ftell(output_file);
     rewind(output_file);
+    printf("DEBUG: opened output file\n");
     
     // Make a buffer with that length
     char send_buf[file_size];
@@ -108,22 +81,25 @@ void stream_shenanigans(int socket_fd)
     int bytes_sent;
     
     // Read the contents into the buf
-    result = fread((void *)send_buf, 1, file_size, output_file);
+    result = fread(send_buf, 1, file_size, output_file);
     if (result != file_size)
     {
         fprintf(stderr, "ERROR reading from file\n");
         fclose(output_file);
         exit(ERROR);
     }
+    printf("DEBUG: read file contents to buf\n");
 
     // Send it bro!!! |m/
-    bytes_sent = send(socket_fd, (void *)send_buf, file_size, MSG_DONTWAIT);
+    bytes_sent = send(client_fd, send_buf, result, 0);
     if (bytes_sent != file_size)
     {
         fprintf(stderr, "ERROR, didn't send all the bytes\n");
         exit(ERROR);
     }
     fclose(output_file);
+    printf("DEBUG: file contents sent!\n");
+    printf("%s", send_buf);
 }
 
 
@@ -139,11 +115,11 @@ int main(int argc, char *argv[])
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    // Signal handling setup
-    struct sigaction new_action;
-    bool success = true;
-    memset(&new_action, 0, sizeof(struct sigaction));
-    new_action.sa_handler = signal_handler;
+    // // Signal handling setup
+    // struct sigaction new_action;
+    // bool success = true;
+    // memset(&new_action, 0, sizeof(struct sigaction));
+    // new_action.sa_handler = signal_handler;
 
 
     // Make fd, use SO_REUSEADDR
@@ -165,6 +141,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR setting socket option SO_REUSEPORT\n");
         exit(ERROR);
     }
+    printf("DEBUG: socket created\n");
 
     // Get the address info
     status = getaddrinfo(NULL, PORT, &hints, &servinfo);
@@ -181,6 +158,7 @@ int main(int argc, char *argv[])
         exit(ERROR);
     }
     freeaddrinfo(servinfo);
+    printf("DEBUG: socket bound\n");
 
     // Listen
     if (listen(sockfd, BACKLOGS) == ERROR)
@@ -188,6 +166,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR listening\n");
         exit(ERROR);
     }
+    printf("DEBUG: listening\n");
 
     // Accept
     openlog("AESD Socket Log", 0, LOG_USER);
@@ -195,13 +174,14 @@ int main(int argc, char *argv[])
     {
         int client_fd;
         struct sockaddr client_addr;
-        socklen_t clientaddr_len = sizeof(sockaddr);
+        socklen_t clientaddr_len = sizeof(client_addr);
         client_fd = accept(sockfd, &client_addr, &clientaddr_len);
         if (client_fd == ERROR)
         {
             fprintf(stderr, "ERROR accepting new socket\n");
             exit(ERROR);
         }
+        printf("DEBUG: client accepted\n");
         
         // Get the addr of the connection
         struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
@@ -213,35 +193,13 @@ int main(int argc, char *argv[])
         syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
 
         // Do the recv, write, read, send
-        stream_shenanigans();
+        transaction(client_fd);
 
         // Cleanup
-        close(clientfd);
+        close(client_fd);
         syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
     }
 
     close(sockfd);
-    return 1;
+    return 0;
 }
-
-
-
-
-
-
-// signal_handler()
-// {
-//     // Sets flags if SIGINT or SIGTERM is caught
-// }
-
-// main()
-// {
-//     // Registers signals and handler
-//     // Does all the socket stuff
-//     while (!SIGINT_flag || !SIGTERM_flag)
-//     {
-//         // Does socket connection and writes file, etc
-//     }
-
-//     // Closes sockets, files, and prints syslog to close gracefully
-// }
