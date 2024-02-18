@@ -23,40 +23,49 @@
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
 void transaction(int client_fd)
 {
-    char recv_buf[1024];
+    char recv_buf[500];
     // char send_buf[1024];
     int send_bytes;
-    char* buf_end;
+    char* buf_end = NULL;
     ssize_t len;
     int new_len;
     FILE *output_file;
 
-    // Read message into buffer
-    memset(recv_buf, 0, sizeof(recv_buf));
-    if ((len = recv(client_fd, recv_buf, sizeof(recv_buf) - 1, MSG_WAITALL)) < 0)
-    {
-        fprintf(stderr, "ERROR calling recv\n");
-        exit(ERROR);
-    }
-    printf("DEBUG: received client buffer\n");
-    
-    // Determine end of packet
-    buf_end = (char *)memchr(recv_buf, '\n', len);
-    if (!buf_end)
-    {
-        fprintf(stderr, "ERROR, no newline detected\n");
-        exit(ERROR);
-    }
-    new_len = (int)(buf_end - recv_buf);
-
-    // Open file, write our message to it
+    // Open file outside of the loop
     output_file = fopen(OUTPUT_FILE_PATH, "a+");
     if (!output_file)
     {
         fprintf(stderr, "ERROR opening output file for writing\n");
         exit(ERROR);
     }
-    fprintf(output_file, "%.*s\n", new_len, recv_buf);
+
+    // Read message into buffer
+    while (!buf_end)
+    {
+        memset(recv_buf, 0, sizeof(recv_buf));
+        if ((len = recv(client_fd, recv_buf, sizeof(recv_buf), 0)) < 0)
+        {
+            fprintf(stderr, "ERROR calling recv\n");
+            exit(ERROR);
+        }
+        printf("DEBUG: received client buffer\n");
+        
+        // Determine end of packet
+        buf_end = (char *)memchr(recv_buf, '\n', len);
+
+        // If we never detected a newline, just append without a newline
+        if (!buf_end)
+        {
+            fprintf(output_file, "%s", recv_buf);
+            // printf("size of this buf is %d\n", (int)len);
+        }
+        else
+        {
+            len = (int)(buf_end - recv_buf);
+            fprintf(output_file, "%.*s\n", (int)len, recv_buf);
+            // printf("size of this buf FINAL is %d\n", (int)len);
+        }
+    }
     fclose(output_file);
     printf("DEBUG: wrote client buf to file\n");
 
