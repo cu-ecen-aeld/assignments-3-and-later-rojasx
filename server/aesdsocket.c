@@ -24,7 +24,6 @@ bool SIGINT_flag = false;
 bool SIGTERM_flag = false;
 int sockfd;
 int client_fd;
-char addr_str[INET_ADDRSTRLEN];
 
 static void signal_handler(int sig)
 {
@@ -136,7 +135,6 @@ int main(int argc, char *argv[])
 
     int status = 0;
     struct addrinfo hints;
-    // struct addrinfo *servinfo; // points to results
     struct addrinfo *servinfo = malloc(sizeof(struct addrinfo)); // Allocate memory
     memset(&hints, 0, sizeof(struct addrinfo));
     memset(servinfo, 0, sizeof(struct addrinfo));
@@ -207,9 +205,9 @@ int main(int argc, char *argv[])
     printf("DEBUG: listening\n");
 
     // Accept
-    
     struct sockaddr client_addr;
     socklen_t clientaddr_len = sizeof(client_addr);
+    char addr_str[INET_ADDRSTRLEN];
     while(1)
     {
         client_fd = accept(sockfd, &client_addr, &clientaddr_len);
