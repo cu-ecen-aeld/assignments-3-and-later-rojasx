@@ -13,11 +13,29 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
 #define BACKLOGS 5
 #define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
+
+bool SIGINT_flag = false;
+bool SIGTERM_flag = false;
+int sockfd;
+int client_fd;
+char addr_str[INET_ADDRSTRLEN];
+
+static void signal_handler(int sig)
+{
+    // Cleanup time
+    shutdown(sockfd, SHUT_RDWR);
+    close(client_fd);
+    close(sockfd);
+    remove(OUTPUT_FILE_PATH);
+    syslog(LOG_USER, "Caught signal %d, exiting", sig);
+    closelog();
+}
 
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
@@ -114,22 +132,33 @@ void transaction(int client_fd)
 
 int main(int argc, char *argv[])
 {
-    int sockfd;
-    int status;
-    struct addrinfo hints;
-    struct addrinfo *servinfo; // points to results
+    openlog("AESD Socket Log", 0, LOG_USER);
 
+    int status = 0;
+    struct addrinfo hints;
+    // struct addrinfo *servinfo; // points to results
+    struct addrinfo *servinfo = malloc(sizeof(struct addrinfo)); // Allocate memory
+    memset(&hints, 0, sizeof(struct addrinfo));
+    memset(servinfo, 0, sizeof(struct addrinfo));
 
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    // // Signal handling setup
-    // struct sigaction new_action;
-    // bool success = true;
-    // memset(&new_action, 0, sizeof(struct sigaction));
-    // new_action.sa_handler = signal_handler;
-
+    // Signal handling setup
+    struct sigaction new_action;
+    memset(&new_action, 0, sizeof(struct sigaction));
+    new_action.sa_handler = signal_handler;
+    if (sigaction(SIGTERM, &new_action, NULL))
+    {
+        fprintf(stderr, "ERROR, could not set up SIGTERM signal\n");
+        exit(ERROR);
+    }
+    if (sigaction(SIGINT, &new_action, NULL))
+    {
+        fprintf(stderr, "ERROR, could not set up SIGINT\n");
+        exit(ERROR);
+    }
 
     // Make fd, use SO_REUSEADDR
     // https://stackoverflow.com/questions/24194961/how-do-i-use-setsockoptso-reuseaddr
@@ -178,12 +207,11 @@ int main(int argc, char *argv[])
     printf("DEBUG: listening\n");
 
     // Accept
-    openlog("AESD Socket Log", 0, LOG_USER);
+    
+    struct sockaddr client_addr;
+    socklen_t clientaddr_len = sizeof(client_addr);
     while(1)
     {
-        int client_fd;
-        struct sockaddr client_addr;
-        socklen_t clientaddr_len = sizeof(client_addr);
         client_fd = accept(sockfd, &client_addr, &clientaddr_len);
         if (client_fd == ERROR)
         {
@@ -195,7 +223,6 @@ int main(int argc, char *argv[])
         // Get the addr of the connection
         struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
         struct in_addr ip_addr = pV4addr->sin_addr;
-        char addr_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &ip_addr, addr_str, INET_ADDRSTRLEN);
 
         // Log the connection!!!
@@ -208,7 +235,6 @@ int main(int argc, char *argv[])
         close(client_fd);
         syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
     }
-
-    close(sockfd);
+    
     return 0;
 }
