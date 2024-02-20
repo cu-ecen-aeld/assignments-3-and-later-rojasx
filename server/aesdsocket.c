@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -14,6 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <fcntl.h>
 
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
@@ -22,31 +24,78 @@
 
 bool SIGINT_flag = false;
 bool SIGTERM_flag = false;
-int sockfd;
+int sock_fd;
 int client_fd;
-
 static void signal_handler(int sig)
 {
     // Cleanup time
-    shutdown(sockfd, SHUT_RDWR);
+    shutdown(sock_fd, SHUT_RDWR);
     close(client_fd);
-    close(sockfd);
+    close(sock_fd);
     remove(OUTPUT_FILE_PATH);
     syslog(LOG_USER, "Caught signal %d, exiting", sig);
     closelog();
 }
 
+// // Guided by https://www.thegeekstuff.com/2012/02/c-daemon-process/
+static void start_daemon()
+{
+    closelog();
+    openlog("AESD Socket Daemon Log", 0, LOG_USER);
+    pid_t process_id = 0;
+    pid_t sid = 0;
+
+    // Child process
+    process_id = fork();
+    if (process_id < 0)
+    {
+        fprintf(stderr, "ERROR, could not fork\n");
+        close(sock_fd);
+        exit(ERROR);
+    }
+
+    // Kill parent
+    if (process_id > 0)
+    {
+        syslog(LOG_INFO, "Killing parent process for daemon setup");
+        exit(0);
+    }
+
+    // Set permissions
+    umask(0);
+
+    // New session
+    sid = setsid();
+    if (sid < 0)
+    {
+        fprintf(stderr, "ERROR, could not create new session\n");
+        close(sock_fd);
+        exit(ERROR);
+    }
+
+    // Change wd to root
+    chdir("/");
+
+    // Close pertinent files
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+    // Redirect, got this from: https://groups.google.com/g/comp.unix.programmer/c/cJJoGqHmztI
+    open("/dev/null", O_RDWR);
+    dup(0);
+    dup(0);
+
+    syslog(LOG_INFO, "Daemon initialized");
+}
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
-void transaction(int client_fd)
+void transaction()
 {
-    char recv_buf[500];
-    // char send_buf[1024];
-    int send_bytes;
-    char* buf_end = NULL;
-    ssize_t len;
-    int new_len;
     FILE *output_file;
+    int nbytes_buf = 512;
+    int nbytes_recv;
+    char* buf_end = NULL;
+    char recv_buf[nbytes_buf];
 
     // Open file outside of the loop
     output_file = fopen(OUTPUT_FILE_PATH, "a+");
@@ -59,79 +108,77 @@ void transaction(int client_fd)
     // Read message into buffer
     while (!buf_end)
     {
+        // Alwas reset the buf no matter what
         memset(recv_buf, 0, sizeof(recv_buf));
-        if ((len = recv(client_fd, recv_buf, sizeof(recv_buf), 0)) < 0)
+        if ((nbytes_recv = recv(client_fd, recv_buf, sizeof(recv_buf), 0)) < 0)
         {
             fprintf(stderr, "ERROR calling recv\n");
             exit(ERROR);
         }
-        printf("DEBUG: received client buffer\n");
-        
-        // Determine end of packet
-        buf_end = (char *)memchr(recv_buf, '\n', len);
+
+        // Determine if end of packet
+        buf_end = (char *)memchr(recv_buf, '\n', nbytes_recv);
 
         // If we never detected a newline, just append without a newline
-        if (!buf_end)
-        {
-            fprintf(output_file, "%s", recv_buf);
-            // printf("size of this buf is %d\n", (int)len);
-        }
-        else
-        {
-            len = (int)(buf_end - recv_buf);
-            fprintf(output_file, "%.*s\n", (int)len, recv_buf);
-            // printf("size of this buf FINAL is %d\n", (int)len);
-        }
+        fwrite(recv_buf, nbytes_recv, 1, output_file);
     }
     fclose(output_file);
-    printf("DEBUG: wrote client buf to file\n");
+    // printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
     // Send back contents of output file
-    int file_size;
     output_file = fopen(OUTPUT_FILE_PATH, "r");
     if (!output_file)
     {
         fprintf(stderr, "ERROR opening output file for reading\n");
         exit(ERROR);
     }
-    // Get the file size
-    fseek(output_file, 0, SEEK_END);
-    file_size = ftell(output_file);
-    rewind(output_file);
-    printf("DEBUG: opened output file\n");
     
-    // Make a buffer with that length
-    char send_buf[file_size];
-    size_t result;
-    int bytes_sent;
+    // Prep to read and send
+    int nbytes_read;
+    int nbytes_sent;
+    char send_buf[nbytes_buf];
     
-    // Read the contents into the buf
-    result = fread(send_buf, 1, file_size, output_file);
-    if (result != file_size)
+    // In case we send multiple packets per send, wait until eof
+    while (!feof(output_file))
     {
-        fprintf(stderr, "ERROR reading from file\n");
-        fclose(output_file);
-        exit(ERROR);
-    }
-    printf("DEBUG: read file contents to buf\n");
-
-    // Send it bro!!! |m/
-    bytes_sent = send(client_fd, send_buf, result, 0);
-    if (bytes_sent != file_size)
-    {
-        fprintf(stderr, "ERROR, didn't send all the bytes\n");
-        exit(ERROR);
+        // Read the contents into the buf
+        nbytes_read = fread(send_buf, 1, nbytes_buf, output_file);
+        // Send it bro!!! |m/
+        nbytes_sent = send(client_fd, send_buf, nbytes_read, 0);
+        if (nbytes_sent < 0)
+        {
+            fprintf(stderr, "ERROR, could not send\n");
+            exit(ERROR);
+        }
     }
     fclose(output_file);
-    printf("DEBUG: file contents sent!\n");
-    printf("%s", send_buf);
+    // printf("DEBUG: file contents sent!\n");
+    // printf("%s", send_buf);
 }
 
 
 int main(int argc, char *argv[])
 {
     openlog("AESD Socket Log", 0, LOG_USER);
+
+    // Determine if daemon
+    bool daemon_flag = false;
+    if ((argc > 2) || ((argc == 2) && (strcmp(argv[1], "-d"))))
+    {
+        fprintf(stderr, "ERROR, invalid arguments.\nUsage: aesdsocket\nOPTIONS\n\t[-d] Run as daemon.\n");
+        exit(ERROR);
+    }
+    else if ((argc == 2) && (strcmp(argv[1], "-d") == 0))
+    {
+        daemon_flag = true;
+        syslog(LOG_INFO, "Running aesdsocket as daemon.");
+    }
+    else
+    {
+        // No daemon flag, all is fine
+        syslog(LOG_INFO, "Running aesdsocket as normal process.");
+    }
 
     int status = 0;
     struct addrinfo hints;
@@ -160,19 +207,19 @@ int main(int argc, char *argv[])
 
     // Make fd, use SO_REUSEADDR
     // https://stackoverflow.com/questions/24194961/how-do-i-use-setsockoptso-reuseaddr
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd == ERROR)
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd == ERROR)
     {
         fprintf(stderr, "ERROR, no port provided\n");
         exit(ERROR);
     }
     int reuse = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse)) == ERROR)
+    if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse, sizeof(reuse)) == ERROR)
     {
         fprintf(stderr, "ERROR setting socket option SO_REUSEADDR\n");
         exit(ERROR);
     }
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, (const char *)&reuse, sizeof(reuse)) == ERROR)
+    if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEPORT, (const char *)&reuse, sizeof(reuse)) == ERROR)
     {
         fprintf(stderr, "ERROR setting socket option SO_REUSEPORT\n");
         exit(ERROR);
@@ -188,7 +235,7 @@ int main(int argc, char *argv[])
     }
 
     // Bind address to socket
-    if (bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == ERROR)
+    if (bind(sock_fd, servinfo->ai_addr, servinfo->ai_addrlen) == ERROR)
     {
         fprintf(stderr, "ERROR binding\n");
         exit(ERROR);
@@ -196,13 +243,19 @@ int main(int argc, char *argv[])
     freeaddrinfo(servinfo);
     printf("DEBUG: socket bound\n");
 
+    // Fork if daemon
+    if (daemon_flag)
+    {
+        start_daemon();
+    }
+
     // Listen
-    if (listen(sockfd, BACKLOGS) == ERROR)
+    if (listen(sock_fd, BACKLOGS) == ERROR)
     {
         fprintf(stderr, "ERROR listening\n");
         exit(ERROR);
     }
-    printf("DEBUG: listening\n");
+    // printf("DEBUG: listening\n");
 
     // Accept
     struct sockaddr client_addr;
@@ -210,13 +263,13 @@ int main(int argc, char *argv[])
     char addr_str[INET_ADDRSTRLEN];
     while(1)
     {
-        client_fd = accept(sockfd, &client_addr, &clientaddr_len);
+        client_fd = accept(sock_fd, &client_addr, &clientaddr_len);
         if (client_fd == ERROR)
         {
             fprintf(stderr, "ERROR accepting new socket\n");
             exit(ERROR);
         }
-        printf("DEBUG: client accepted\n");
+        // printf("DEBUG: client accepted\n");
         
         // Get the addr of the connection
         struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
@@ -227,7 +280,7 @@ int main(int argc, char *argv[])
         syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
 
         // Do the recv, write, read, send
-        transaction(client_fd);
+        transaction();
 
         // Cleanup
         close(client_fd);
