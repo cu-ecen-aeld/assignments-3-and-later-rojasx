@@ -22,19 +22,14 @@
 #define BACKLOGS 5
 #define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
 
-bool SIGINT_flag = false;
-bool SIGTERM_flag = false;
-int sock_fd;
-int client_fd;
+volatile int sock_fd;
+volatile int signal_caught = 0;
+
 static void signal_handler(int sig)
 {
-    // Cleanup time
+    // Just shutdown, cleanup happens in main
     shutdown(sock_fd, SHUT_RDWR);
-    close(client_fd);
-    close(sock_fd);
-    remove(OUTPUT_FILE_PATH);
-    syslog(LOG_USER, "Caught signal %d, exiting", sig);
-    closelog();
+    signal_caught = sig;
 }
 
 // // Guided by https://www.thegeekstuff.com/2012/02/c-daemon-process/
@@ -89,7 +84,7 @@ static void start_daemon()
 }
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
-void transaction()
+void transaction(int client_fd)
 {
     FILE *output_file;
     int nbytes_buf = 512;
@@ -258,13 +253,20 @@ int main(int argc, char *argv[])
     // printf("DEBUG: listening\n");
 
     // Accept
+    int client_fd;
     struct sockaddr client_addr;
     socklen_t clientaddr_len = sizeof(client_addr);
     char addr_str[INET_ADDRSTRLEN];
-    while(1)
+    while(!signal_caught)
     {
         client_fd = accept(sock_fd, &client_addr, &clientaddr_len);
-        if (client_fd == ERROR)
+        if ((client_fd == ERROR) && signal_caught)
+        {
+            // We will only be able to catch the signal if caught waiting in accept
+            // If signal thrown below, unsure of what will happen...
+            break;
+        }
+        else if ((client_fd == ERROR) && !signal_caught)
         {
             fprintf(stderr, "ERROR accepting new socket\n");
             exit(ERROR);
@@ -280,12 +282,19 @@ int main(int argc, char *argv[])
         syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
 
         // Do the recv, write, read, send
-        transaction();
+        transaction(client_fd);
 
-        // Cleanup
+        // Close client for next transaction
         close(client_fd);
         syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
     }
+
+    // Cleanup
+    close(client_fd);
+    close(sock_fd);
+    remove(OUTPUT_FILE_PATH);
+    syslog(LOG_USER, "Caught signal: %s. Exiting!", strsignal(signal_caught));
+    closelog();
     
     return 0;
 }
