@@ -3,7 +3,9 @@
 # Written by Xavier Rojas
 # Quick script to manage our daemon!
 
-AESDSOCKET_PATH="$(realpath $(dirname $0))"/aesdsocket
+# First one works for local, second for qemu
+# AESDSOCKET_PATH="$(realpath $(dirname $0))"/aesdsocket
+AESDSOCKET_PATH="/usr/bin/aesdsocket"
 
 case "$1" in
     start)
