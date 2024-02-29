@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 all: aesdsocket
 
 aesdsocket: aesdsocket.c 
-	$(CC)  aesdsocket.c -o aesdsocket -g3
+	$(CC)  aesdsocket.c -o aesdsocket -Wall -Werror -g3 -O0 -pthread
 
 .PHONY: clean
 

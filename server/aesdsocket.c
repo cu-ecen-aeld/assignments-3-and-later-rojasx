@@ -16,6 +16,8 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <fcntl.h>
+#include <sys/queue.h>
+#include <pthread.h>
 
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
@@ -24,6 +26,15 @@
 
 volatile int sock_fd;
 volatile int signal_caught = 0;
+pthread_mutex_t my_mutex;
+
+struct thread_data_s {
+    pthread_t       thread_id;
+    int             client_fd;
+    pthread_mutex_t txn_mutex;
+    bool            thread_complete;
+    SLIST_ENTRY(thread_data_s) next_thread;
+};
 
 static void signal_handler(int sig)
 {
@@ -84,14 +95,17 @@ static void start_daemon()
 }
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
-void transaction(int client_fd)
+void *transaction(void *data)
 {
+    struct thread_data_s *thread_data = (struct thread_data_s *)data;
     FILE *output_file;
     int nbytes_buf = 512;
     int nbytes_recv;
     char* buf_end = NULL;
     char recv_buf[nbytes_buf];
 
+    // Lock data
+    pthread_mutex_lock(&(thread_data->txn_mutex));
     // Open file outside of the loop
     output_file = fopen(OUTPUT_FILE_PATH, "a+");
     if (!output_file)
@@ -103,9 +117,9 @@ void transaction(int client_fd)
     // Read message into buffer
     while (!buf_end)
     {
-        // Alwas reset the buf no matter what
+        // Always reset the buf no matter what
         memset(recv_buf, 0, sizeof(recv_buf));
-        if ((nbytes_recv = recv(client_fd, recv_buf, sizeof(recv_buf), 0)) < 0)
+        if ((nbytes_recv = recv(thread_data->client_fd, recv_buf, sizeof(recv_buf), 0)) < 0)
         {
             fprintf(stderr, "ERROR calling recv\n");
             exit(ERROR);
@@ -140,7 +154,7 @@ void transaction(int client_fd)
         // Read the contents into the buf
         nbytes_read = fread(send_buf, 1, nbytes_buf, output_file);
         // Send it bro!!! |m/
-        nbytes_sent = send(client_fd, send_buf, nbytes_read, 0);
+        nbytes_sent = send(thread_data->client_fd, send_buf, nbytes_read, 0);
         if (nbytes_sent < 0)
         {
             fprintf(stderr, "ERROR, could not send\n");
@@ -148,8 +162,14 @@ void transaction(int client_fd)
         }
     }
     fclose(output_file);
+    pthread_mutex_unlock(&(thread_data->txn_mutex));
+    
+    // Close client for next transaction
+    close(thread_data->client_fd);
+    thread_data->thread_complete = true;
     // printf("DEBUG: file contents sent!\n");
     // printf("%s", send_buf);
+    return data;
 }
 
 
@@ -199,6 +219,10 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR, could not set up SIGINT\n");
         exit(ERROR);
     }
+
+    // Linked list setup
+    SLIST_HEAD(slist_head, thread_data_s) head;
+    SLIST_INIT(&head);
 
     // Make fd, use SO_REUSEADDR
     // https://stackoverflow.com/questions/24194961/how-do-i-use-setsockoptso-reuseaddr
@@ -257,8 +281,12 @@ int main(int argc, char *argv[])
     struct sockaddr client_addr;
     socklen_t clientaddr_len = sizeof(client_addr);
     char addr_str[INET_ADDRSTRLEN];
+    pthread_mutex_t txn_mutex;
+    pthread_mutex_init(&txn_mutex, NULL);
+
     while(!signal_caught)
     {
+        pthread_t thread_id;
         client_fd = accept(sock_fd, &client_addr, &clientaddr_len);
         if ((client_fd == ERROR) && signal_caught)
         {
@@ -281,15 +309,57 @@ int main(int argc, char *argv[])
         // Log the connection!!!
         syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
 
-        // Do the recv, write, read, send
-        transaction(client_fd);
+        // Start thread
+        struct thread_data_s *my_thread_data = (struct thread_data_s *)malloc(sizeof(struct thread_data_s));
+        if (!my_thread_data)
+        {
+            fprintf(stderr, "ERROR allocating space for thread\n");
+            exit(ERROR);
+        }
+        my_thread_data->thread_complete = false;
+        my_thread_data->client_fd = client_fd;
+        my_thread_data->txn_mutex = txn_mutex;
+        int thread_out = pthread_create(&thread_id, NULL, transaction, my_thread_data);
+        if (thread_out)
+        {
+            free(my_thread_data);
+            fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", thread_out);
+            // exit(ERROR);
+            // Maybe catch a retval to call return with
+        }
+        else
+        {
+            my_thread_data->thread_id = thread_id;
+            syslog(LOG_INFO, "Starting new thread %lu\n", my_thread_data->thread_id);
 
-        // Close client for next transaction
-        close(client_fd);
+            // Add this thread to LL
+            SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
+            SLIST_FOREACH(my_thread_data, &head, next_thread)
+            {
+                if (my_thread_data->thread_complete)
+                {
+                    syslog(LOG_INFO, "Thread %lu complete, joining.\n", my_thread_data->thread_id);
+                    pthread_join(my_thread_data->thread_id, NULL);
+                    SLIST_REMOVE(&head, my_thread_data, thread_data_s, next_thread);
+                    free(my_thread_data);
+                }
+            }
+
+
+        }
         syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
     }
 
     // Cleanup
+    // First check for remaining links
+    while(!SLIST_EMPTY(&head))
+    {
+        struct thread_data_s *elem = SLIST_FIRST(&head);
+        //SHOULD JOIN HERE AS WELL!!!
+        SLIST_REMOVE_HEAD(&head, next_thread);
+        free(elem);
+    }
+    pthread_mutex_destroy(&txn_mutex);
     close(client_fd);
     close(sock_fd);
     remove(OUTPUT_FILE_PATH);
