@@ -2,6 +2,7 @@
     Written by: Xavier Rojas
 
 */
+#include "queue.h"
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -168,7 +169,7 @@ pthread_t start_time_thread(pthread_mutex_t *mutex)
     }
     else
     {
-        syslog(LOG_INFO, "Starting timestampt thread %lu\n", time_thread_id);
+        syslog(LOG_INFO, "Starting timestamp thread %lu\n", time_thread_id);
     }
 
     return time_thread_id;
@@ -278,9 +279,10 @@ int main(int argc, char *argv[])
 
     int status = 0;
     struct addrinfo hints;
-    struct addrinfo *servinfo = malloc(sizeof(struct addrinfo)); // Allocate memory
+    // struct addrinfo *servinfo = malloc(sizeof(struct addrinfo)); // Allocate memory
+    struct addrinfo *servinfo; // Allocate memory
     memset(&hints, 0, sizeof(struct addrinfo));
-    memset(servinfo, 0, sizeof(struct addrinfo));
+    // memset(servinfo, 0, sizeof(struct addrinfo));
 
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -313,6 +315,8 @@ int main(int argc, char *argv[])
     // Make fd, use SO_REUSEADDR
     // https://stackoverflow.com/questions/24194961/how-do-i-use-setsockoptso-reuseaddr
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    // int flags = fcntl(sock_fd, F_GETFL, 0);
+    // fcntl(sock_fd, F_SETFL, flags | O_NONBLOCK);
     if (sock_fd == ERROR)
     {
         fprintf(stderr, "ERROR, no port provided\n");
@@ -345,8 +349,7 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR binding\n");
         exit(ERROR);
     }
-    // freeaddrinfo(servinfo);
-    free(servinfo);
+    freeaddrinfo(servinfo);
     printf("DEBUG: socket bound\n");
 
     // Fork if daemon
@@ -378,22 +381,8 @@ int main(int argc, char *argv[])
     {
         pthread_t thread_id;
         client_fd = accept(sock_fd, &client_addr, &clientaddr_len);
-        if ((client_fd == ERROR) && signal_caught)
-        {
-            // We will only be able to catch the signal if caught waiting in accept
-            // If signal thrown below, unsure of what will happen...
-            break;
-        }
-        else if ((client_fd == ERROR) && !signal_caught && timer_caught)
-        {
-            printf("Timer caught, re-accepting\n");
-            // fprintf(stderr, "ERROR accepting new socket\n");
-            // exit(ERROR);
-        }
-        else
-        {
-            // printf("DEBUG: client accepted\n");
-            
+        if ((client_fd != ERROR))
+        {   
             // Get the addr of the connection
             struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
             struct in_addr ip_addr = pV4addr->sin_addr;
@@ -416,26 +405,26 @@ int main(int argc, char *argv[])
             if (thread_out)
             {
                 free(my_thread_data);
-                fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", thread_out);
-                // exit(ERROR);
-                // Maybe catch a retval to call return with
+                fprintf(stderr, "ERROR creating thread, cleaning up and closing");
+                break;
             }
-            else
-            {
-                my_thread_data->thread_id = thread_id;
-                syslog(LOG_INFO, "Starting new thread %lu\n", my_thread_data->thread_id);
+            my_thread_data->thread_id = thread_id;
+            syslog(LOG_INFO, "Starting new thread %lu\n", my_thread_data->thread_id);
 
-                // Add this thread to LL
-                SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
-                SLIST_FOREACH(my_thread_data, &head, next_thread)
+            // Add this thread to LL
+            SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
+
+            // Remove completed threads
+            struct thread_data_s *tmp_thread_data;
+            struct thread_data_s *tmp_thread_next;
+            SLIST_FOREACH_SAFE(tmp_thread_data, &head, next_thread, tmp_thread_next)
+            {
+                if (tmp_thread_data->thread_complete)
                 {
-                    if (my_thread_data->thread_complete)
-                    {
-                        syslog(LOG_INFO, "Thread %lu complete, joining.\n", my_thread_data->thread_id);
-                        pthread_join(my_thread_data->thread_id, NULL);
-                        SLIST_REMOVE(&head, my_thread_data, thread_data_s, next_thread);
-                        free(my_thread_data);
-                    }
+                    syslog(LOG_INFO, "Thread %lu complete, joining.\n", tmp_thread_data->thread_id);
+                    pthread_join(tmp_thread_data->thread_id, NULL);
+                    SLIST_REMOVE(&head, tmp_thread_data, thread_data_s, next_thread);
+                    free(tmp_thread_data);
                 }
             }
             syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
@@ -448,6 +437,7 @@ int main(int argc, char *argv[])
     {
         struct thread_data_s *elem = SLIST_FIRST(&head);
         // Join here as well?
+        // pthread_join(elem->thread_id, NULL);
         SLIST_REMOVE_HEAD(&head, next_thread);
         free(elem);
     }
