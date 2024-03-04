@@ -43,20 +43,15 @@ struct thread_data_s {
 
 static void signal_handler(int sig)
 {
-    // Handle timer, then socket
-    if (sig == SIGALRM)
-    {
-		timer_caught = 1;
-	}
-    else
-    {
-        // Just shutdown, cleanup happens in main
-        shutdown(sock_fd, SHUT_RDWR);
-        signal_caught = sig;
-    }
+    // Just shutdown, cleanup happens in main
+    shutdown(sock_fd, SHUT_RDWR);
+    signal_caught = sig;
 }
 
-
+static void timer_handler(int sig)
+{
+    timer_caught = 1;
+}
 // // Guided by https://www.thegeekstuff.com/2012/02/c-daemon-process/
 static void start_daemon()
 {
@@ -108,73 +103,48 @@ static void start_daemon()
     syslog(LOG_INFO, "Daemon initialized");
 }
 
-void *time_stamp(void *data)
+void init_timer(void)
 {
-    pthread_mutex_t *mutex = (pthread_mutex_t *)data;
-    // Setup 10 second timer
-    FILE *output_file;
-	struct itimerval my_timer;
+    struct itimerval my_timer;
 	my_timer.it_value.tv_sec = 10;
 	my_timer.it_value.tv_usec = 0;
 	my_timer.it_interval.tv_sec = 10;
 	my_timer.it_interval.tv_usec = 0;
 	setitimer(ITIMER_REAL, &my_timer, NULL);
+}
+
+void time_stamp(pthread_mutex_t *mutex)
+{
+    // Setup 10 second timer
+    FILE *output_file;
 	char time_data[MAX_TIME_SIZE];
 	memset(&time_data, 0, MAX_TIME_SIZE);
 	time_t rawNow;
 	struct tm* now = (struct tm*)malloc(sizeof(struct tm));
-    // Start by writing time immediately
-    timer_caught = 1;
-    while(!signal_caught)
+
+    time(&rawNow);
+    now = localtime_r(&rawNow, now);
+    
+    // Format timestamp
+    memset(&time_data, 0, MAX_TIME_SIZE);
+    strftime(time_data, MAX_TIME_SIZE, RFC2822_FORMAT, now);
+
+    // Write timestamp to file
+    pthread_mutex_lock(mutex);
+    
+    output_file = fopen(OUTPUT_FILE_PATH, "a+");
+    if (!output_file)
     {
-        if(timer_caught)
-        {
-            timer_caught = 0;
-			time(&rawNow);
-			now = localtime_r(&rawNow, now);
-			
-			// Format timestamp
-			memset(&time_data, 0, MAX_TIME_SIZE);
-			strftime(time_data, MAX_TIME_SIZE, RFC2822_FORMAT, now);
-
-			// Write timestamp to file
-			pthread_mutex_lock(mutex);
-            
-            output_file = fopen(OUTPUT_FILE_PATH, "a+");
-            if (!output_file)
-            {
-                fprintf(stderr, "ERROR opening output file for writing timestamp\n");
-                exit(ERROR);
-            }
-            fwrite(time_data, strlen(time_data), 1, output_file);
-            fclose(output_file);
-
-			pthread_mutex_unlock(mutex);
-        }
-    }
-    free(now);
-    return data;
-}
-
-
-pthread_t start_time_thread(pthread_mutex_t *mutex)
-{
-    pthread_t time_thread_id;
-
-    int time_thread_out = pthread_create(&time_thread_id, NULL, time_stamp, mutex);
-    if (time_thread_out)
-    {
-        fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", time_thread_out);
+        fprintf(stderr, "ERROR opening output file for writing timestamp\n");
         exit(ERROR);
     }
-    else
-    {
-        syslog(LOG_INFO, "Starting timestamp thread %lu\n", time_thread_id);
-    }
+    fwrite(time_data, strlen(time_data), 1, output_file);
+    fclose(output_file);
 
-    return time_thread_id;
+    pthread_mutex_unlock(mutex);
+
+    free(now);
 }
-
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
 void *transaction(void *data)
@@ -302,6 +272,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR, could not set up SIGINT\n");
         exit(ERROR);
     }
+    
+    // Timer handler
+    new_action.sa_handler = timer_handler;
     if (sigaction(SIGALRM, &new_action, NULL))
     {
         fprintf(stderr, "ERROR, could not set up SIGALRM\n");
@@ -361,7 +334,8 @@ int main(int argc, char *argv[])
     // Start timer
     pthread_mutex_t my_mutex;           // Same mutex is used for socket data
     pthread_mutex_init(&my_mutex, NULL);
-    pthread_t time_thread_id = start_time_thread(&my_mutex);
+    init_timer();
+    time_stamp(&my_mutex);
 
     // Listen
     if (listen(sock_fd, BACKLOGS) == ERROR)
@@ -414,21 +388,30 @@ int main(int argc, char *argv[])
             // Add this thread to LL
             SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
 
-            // Remove completed threads
-            struct thread_data_s *tmp_thread_data;
-            struct thread_data_s *tmp_thread_next;
-            SLIST_FOREACH_SAFE(tmp_thread_data, &head, next_thread, tmp_thread_next)
-            {
-                if (tmp_thread_data->thread_complete)
-                {
-                    syslog(LOG_INFO, "Thread %lu complete, joining.\n", tmp_thread_data->thread_id);
-                    pthread_join(tmp_thread_data->thread_id, NULL);
-                    SLIST_REMOVE(&head, tmp_thread_data, thread_data_s, next_thread);
-                    free(tmp_thread_data);
-                }
-            }
-            syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
         }
+
+        // Check timer
+        if (timer_caught)
+        {
+            timer_caught = 0;
+            time_stamp(&my_mutex);
+        }
+
+        // Remove completed threads
+        struct thread_data_s *tmp_thread_data;
+        struct thread_data_s *tmp_thread_next;
+        SLIST_FOREACH_SAFE(tmp_thread_data, &head, next_thread, tmp_thread_next)
+        {
+            if (tmp_thread_data->thread_complete)
+            {
+                syslog(LOG_INFO, "Thread %lu complete, joining.\n", tmp_thread_data->thread_id);
+                pthread_join(tmp_thread_data->thread_id, NULL);
+                SLIST_REMOVE(&head, tmp_thread_data, thread_data_s, next_thread);
+                free(tmp_thread_data);
+            }
+        }
+        syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
+        
     }
 
     // Cleanup
@@ -441,7 +424,6 @@ int main(int argc, char *argv[])
         SLIST_REMOVE_HEAD(&head, next_thread);
         free(elem);
     }
-    pthread_join(time_thread_id, NULL);
     pthread_mutex_destroy(&my_mutex);
     close(client_fd);
     close(sock_fd);
