@@ -18,15 +18,19 @@
 #include <fcntl.h>
 #include <sys/queue.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
 #define BACKLOGS 5
 #define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
 
+#define RFC2822_FORMAT "timestamp:%a, %d %b %Y %T %z\n"
+#define MAX_TIME_SIZE 60
+
 volatile int sock_fd;
 volatile int signal_caught = 0;
-pthread_mutex_t my_mutex;
+volatile int timer_caught = 0;
 
 struct thread_data_s {
     pthread_t       thread_id;
@@ -38,10 +42,19 @@ struct thread_data_s {
 
 static void signal_handler(int sig)
 {
-    // Just shutdown, cleanup happens in main
-    shutdown(sock_fd, SHUT_RDWR);
-    signal_caught = sig;
+    // Handle timer, then socket
+    if (sig == SIGALRM)
+    {
+		timer_caught = 1;
+	}
+    else
+    {
+        // Just shutdown, cleanup happens in main
+        shutdown(sock_fd, SHUT_RDWR);
+        signal_caught = sig;
+    }
 }
+
 
 // // Guided by https://www.thegeekstuff.com/2012/02/c-daemon-process/
 static void start_daemon()
@@ -93,6 +106,74 @@ static void start_daemon()
 
     syslog(LOG_INFO, "Daemon initialized");
 }
+
+void *time_stamp(void *data)
+{
+    pthread_mutex_t *mutex = (pthread_mutex_t *)data;
+    // Setup 10 second timer
+    FILE *output_file;
+	struct itimerval my_timer;
+	my_timer.it_value.tv_sec = 10;
+	my_timer.it_value.tv_usec = 0;
+	my_timer.it_interval.tv_sec = 10;
+	my_timer.it_interval.tv_usec = 0;
+	setitimer(ITIMER_REAL, &my_timer, NULL);
+	char time_data[MAX_TIME_SIZE];
+	memset(&time_data, 0, MAX_TIME_SIZE);
+	time_t rawNow;
+	struct tm* now = (struct tm*)malloc(sizeof(struct tm));
+    // Start by writing time immediately
+    timer_caught = 1;
+    while(!signal_caught)
+    {
+        if(timer_caught)
+        {
+            timer_caught = 0;
+			time(&rawNow);
+			now = localtime_r(&rawNow, now);
+			
+			// Format timestamp
+			memset(&time_data, 0, MAX_TIME_SIZE);
+			strftime(time_data, MAX_TIME_SIZE, RFC2822_FORMAT, now);
+
+			// Write timestamp to file
+			pthread_mutex_lock(mutex);
+            
+            output_file = fopen(OUTPUT_FILE_PATH, "a+");
+            if (!output_file)
+            {
+                fprintf(stderr, "ERROR opening output file for writing timestamp\n");
+                exit(ERROR);
+            }
+            fwrite(time_data, strlen(time_data), 1, output_file);
+            fclose(output_file);
+
+			pthread_mutex_unlock(mutex);
+        }
+    }
+    free(now);
+    return data;
+}
+
+
+pthread_t start_time_thread(pthread_mutex_t *mutex)
+{
+    pthread_t time_thread_id;
+
+    int time_thread_out = pthread_create(&time_thread_id, NULL, time_stamp, mutex);
+    if (time_thread_out)
+    {
+        fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", time_thread_out);
+        exit(ERROR);
+    }
+    else
+    {
+        syslog(LOG_INFO, "Starting timestampt thread %lu\n", time_thread_id);
+    }
+
+    return time_thread_id;
+}
+
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
 void *transaction(void *data)
@@ -219,6 +300,11 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR, could not set up SIGINT\n");
         exit(ERROR);
     }
+    if (sigaction(SIGALRM, &new_action, NULL))
+    {
+        fprintf(stderr, "ERROR, could not set up SIGALRM\n");
+        exit(ERROR);
+    }
 
     // Linked list setup
     SLIST_HEAD(slist_head, thread_data_s) head;
@@ -259,7 +345,8 @@ int main(int argc, char *argv[])
         fprintf(stderr, "ERROR binding\n");
         exit(ERROR);
     }
-    freeaddrinfo(servinfo);
+    // freeaddrinfo(servinfo);
+    free(servinfo);
     printf("DEBUG: socket bound\n");
 
     // Fork if daemon
@@ -267,6 +354,11 @@ int main(int argc, char *argv[])
     {
         start_daemon();
     }
+
+    // Start timer
+    pthread_mutex_t my_mutex;           // Same mutex is used for socket data
+    pthread_mutex_init(&my_mutex, NULL);
+    pthread_t time_thread_id = start_time_thread(&my_mutex);
 
     // Listen
     if (listen(sock_fd, BACKLOGS) == ERROR)
@@ -281,8 +373,6 @@ int main(int argc, char *argv[])
     struct sockaddr client_addr;
     socklen_t clientaddr_len = sizeof(client_addr);
     char addr_str[INET_ADDRSTRLEN];
-    pthread_mutex_t txn_mutex;
-    pthread_mutex_init(&txn_mutex, NULL);
 
     while(!signal_caught)
     {
@@ -294,60 +384,62 @@ int main(int argc, char *argv[])
             // If signal thrown below, unsure of what will happen...
             break;
         }
-        else if ((client_fd == ERROR) && !signal_caught)
+        else if ((client_fd == ERROR) && !signal_caught && timer_caught)
         {
-            fprintf(stderr, "ERROR accepting new socket\n");
-            exit(ERROR);
-        }
-        // printf("DEBUG: client accepted\n");
-        
-        // Get the addr of the connection
-        struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
-        struct in_addr ip_addr = pV4addr->sin_addr;
-        inet_ntop(AF_INET, &ip_addr, addr_str, INET_ADDRSTRLEN);
-
-        // Log the connection!!!
-        syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
-
-        // Start thread
-        struct thread_data_s *my_thread_data = (struct thread_data_s *)malloc(sizeof(struct thread_data_s));
-        if (!my_thread_data)
-        {
-            fprintf(stderr, "ERROR allocating space for thread\n");
-            exit(ERROR);
-        }
-        my_thread_data->thread_complete = false;
-        my_thread_data->client_fd = client_fd;
-        my_thread_data->txn_mutex = txn_mutex;
-        int thread_out = pthread_create(&thread_id, NULL, transaction, my_thread_data);
-        if (thread_out)
-        {
-            free(my_thread_data);
-            fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", thread_out);
+            printf("Timer caught, re-accepting\n");
+            // fprintf(stderr, "ERROR accepting new socket\n");
             // exit(ERROR);
-            // Maybe catch a retval to call return with
         }
         else
         {
-            my_thread_data->thread_id = thread_id;
-            syslog(LOG_INFO, "Starting new thread %lu\n", my_thread_data->thread_id);
+            // printf("DEBUG: client accepted\n");
+            
+            // Get the addr of the connection
+            struct sockaddr_in *pV4addr = (struct sockaddr_in *)&client_addr;
+            struct in_addr ip_addr = pV4addr->sin_addr;
+            inet_ntop(AF_INET, &ip_addr, addr_str, INET_ADDRSTRLEN);
 
-            // Add this thread to LL
-            SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
-            SLIST_FOREACH(my_thread_data, &head, next_thread)
+            // Log the connection!!!
+            syslog(LOG_INFO, "Accepted connection from %s\n", addr_str);
+
+            // Start thread
+            struct thread_data_s *my_thread_data = (struct thread_data_s *)malloc(sizeof(struct thread_data_s));
+            if (!my_thread_data)
             {
-                if (my_thread_data->thread_complete)
+                fprintf(stderr, "ERROR allocating space for thread\n");
+                exit(ERROR);
+            }
+            my_thread_data->thread_complete = false;
+            my_thread_data->client_fd = client_fd;
+            my_thread_data->txn_mutex = my_mutex;
+            int thread_out = pthread_create(&thread_id, NULL, transaction, my_thread_data);
+            if (thread_out)
+            {
+                free(my_thread_data);
+                fprintf(stderr, "ERROR creating thread, pthread_create returned %d\n", thread_out);
+                // exit(ERROR);
+                // Maybe catch a retval to call return with
+            }
+            else
+            {
+                my_thread_data->thread_id = thread_id;
+                syslog(LOG_INFO, "Starting new thread %lu\n", my_thread_data->thread_id);
+
+                // Add this thread to LL
+                SLIST_INSERT_HEAD(&head, my_thread_data, next_thread);
+                SLIST_FOREACH(my_thread_data, &head, next_thread)
                 {
-                    syslog(LOG_INFO, "Thread %lu complete, joining.\n", my_thread_data->thread_id);
-                    pthread_join(my_thread_data->thread_id, NULL);
-                    SLIST_REMOVE(&head, my_thread_data, thread_data_s, next_thread);
-                    free(my_thread_data);
+                    if (my_thread_data->thread_complete)
+                    {
+                        syslog(LOG_INFO, "Thread %lu complete, joining.\n", my_thread_data->thread_id);
+                        pthread_join(my_thread_data->thread_id, NULL);
+                        SLIST_REMOVE(&head, my_thread_data, thread_data_s, next_thread);
+                        free(my_thread_data);
+                    }
                 }
             }
-
-
+            syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
         }
-        syslog(LOG_INFO, "Closed connection from %s\n", addr_str);
     }
 
     // Cleanup
@@ -355,16 +447,17 @@ int main(int argc, char *argv[])
     while(!SLIST_EMPTY(&head))
     {
         struct thread_data_s *elem = SLIST_FIRST(&head);
-        //SHOULD JOIN HERE AS WELL!!!
+        // Join here as well?
         SLIST_REMOVE_HEAD(&head, next_thread);
         free(elem);
     }
-    pthread_mutex_destroy(&txn_mutex);
+    pthread_join(time_thread_id, NULL);
+    pthread_mutex_destroy(&my_mutex);
     close(client_fd);
     close(sock_fd);
     remove(OUTPUT_FILE_PATH);
     syslog(LOG_USER, "Caught signal: %s. Exiting!", strsignal(signal_caught));
     closelog();
-    
+    printf("\nreturning successfully\n\n");
     return 0;
 }
