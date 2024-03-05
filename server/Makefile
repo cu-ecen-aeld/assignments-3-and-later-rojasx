@@ -1,11 +1,12 @@
-SHELL := /usr/bin/env bash
+CC ?= $(CROSS_COMPILER)gcc
+CFLAGS ?= -g -Wall -Werror
+LDFLAGS ?= -pthread -lrt
+TARGET ?= aesdsocket
 
 all: aesdsocket
 
-aesdsocket: aesdsocket.c 
-	$(CC)  aesdsocket.c -o aesdsocket -Wall -Werror -g3 -O0 -pthread
-
-.PHONY: clean
+aesdsocket: aesdsocket.c queue.h
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET) aesdsocket.c
 
 clean:
-	@rm -rf *.o aesdsocket
+	rm -rf *.o aesdsocket
