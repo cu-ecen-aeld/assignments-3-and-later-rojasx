@@ -66,7 +66,6 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 
     *entry_offset_byte_rtn = entry_offset;
     return buffer->entry + buffer_idx;
-
 }
 
 /**
