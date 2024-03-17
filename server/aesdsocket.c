@@ -21,7 +21,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 
-#define USE_AESD_CHAR_DEVICE 1
+#define USE_AESD_CHAR_DEVICE 0
 
 #if USE_AESD_CHAR_DEVICE
     #define OUTPUT_FILE_PATH "/dev/aesdchar"
@@ -36,6 +36,7 @@
 #define RFC2822_FORMAT "timestamp:%a, %d %b %Y %T %z\n"
 #define MAX_TIME_SIZE 60
 
+volatile int fd;
 volatile int sock_fd;
 volatile int signal_caught = 0;
 volatile int timer_caught = 0;
@@ -123,7 +124,6 @@ void init_timer(void)
 void time_stamp(pthread_mutex_t *mutex)
 {
     // Setup 10 second timer
-    FILE *output_file;
 	char time_data[MAX_TIME_SIZE];
 	memset(&time_data, 0, MAX_TIME_SIZE);
 	time_t rawNow;
@@ -139,25 +139,26 @@ void time_stamp(pthread_mutex_t *mutex)
     // Write timestamp to file
     pthread_mutex_lock(mutex);
     
-    output_file = fopen(OUTPUT_FILE_PATH, "a+");
-    if (!output_file)
+    fd = open(OUTPUT_FILE_PATH, O_RDWR | O_APPEND, 00666);
+    if(fd == -1)
     {
-        fprintf(stderr, "ERROR opening output file for writing timestamp\n");
-        exit(ERROR);
-    }
-    fwrite(time_data, strlen(time_data), 1, output_file);
-    fclose(output_file);
+		fprintf(stderr, "ERROR opening output file for writing timestamp\n");
+		exit(ERROR);
+	}
+    write(fd, time_data, strlen(time_data));
+    // close(fd);
 
     pthread_mutex_unlock(mutex);
 
     free(now);
+    return;
 }
 
 // Ideas pulled from https://github.com/jasujm/apparatus-examples/blob/master/signal-handling/lib.c
 void *transaction(void *data)
 {
+    // int fd_write;
     struct thread_data_s *thread_data = (struct thread_data_s *)data;
-    FILE *output_file;
     int nbytes_buf = 512;
     int nbytes_recv;
     char* buf_end = NULL;
@@ -165,13 +166,13 @@ void *transaction(void *data)
 
     // Lock data
     pthread_mutex_lock(&(thread_data->txn_mutex));
-    // Open file outside of the loop
-    output_file = fopen(OUTPUT_FILE_PATH, "a+");
-    if (!output_file)
+
+    fd = open(OUTPUT_FILE_PATH, O_RDWR | O_APPEND, 00666);
+    if(fd == -1)
     {
-        fprintf(stderr, "ERROR opening output file for writing\n");
-        exit(ERROR);
-    }
+		fprintf(stderr, "ERROR opening output file for writing\n");
+		exit(ERROR);
+	}
 
     // Read message into buffer
     while (!buf_end)
@@ -188,46 +189,74 @@ void *transaction(void *data)
         buf_end = (char *)memchr(recv_buf, '\n', nbytes_recv);
 
         // If we never detected a newline, just append without a newline
-        fwrite(recv_buf, nbytes_recv, 1, output_file);
+        write(fd, recv_buf, nbytes_recv);
     }
-    fclose(output_file);
+    // close(fd_write);
     printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
     // Send back contents of output file
-    output_file = fopen(OUTPUT_FILE_PATH, "r");
-    if (!output_file)
+    // int fd_read;
+    fd = open(OUTPUT_FILE_PATH, O_RDWR, 00666);
+    printf("DEBUG: opened file for reading\n");
+    if(fd == -1)
     {
-        fprintf(stderr, "ERROR opening output file for reading\n");
-        exit(ERROR);
-    }
+		fprintf(stderr, "ERROR opening output file for reading\n");
+		exit(ERROR);
+	}
     
     // Prep to read and send
-    int nbytes_read;
-    int nbytes_sent;
+    int nbytes_sent = 0;
+    int nbytes_read = 0;
+    off_t offset = 0;
+    char last_byte = '0';
     char send_buf[nbytes_buf];
     
     // In case we send multiple packets per send, wait until eof
-    while (!feof(output_file))
+    while (last_byte != '\n')
     {
         // Read the contents into the buf
-        nbytes_read = fread(send_buf, 1, nbytes_buf, output_file);
+        nbytes_read = pread(fd, send_buf, nbytes_buf, offset);
+        // printf("Read the bytes: %s\n", send_buf);
+        if (nbytes_read == -1)
+        {
+            fprintf(stderr, "ERROR reading\n");
+            exit(ERROR);
+        }
+        // if ((nbytes_read == 0))
+        // {
+        //     if (last_byte != '\n')
+        //     {
+        //         int rc = send(fd, "\n", 1, 0);
+        //         if (rc == -1)
+        //         {
+        //             fprintf(stderr, "ERROR sending last char\n");
+        //             exit(ERROR);
+        //         }
+        //     }
+        //     printf("broke out\n");
+        //     break;
+        // }
+
         // Send it bro!!! |m/
         nbytes_sent = send(thread_data->client_fd, send_buf, nbytes_read, 0);
+        // printf("Sent the bytes: %s\n", send_buf);
         if (nbytes_sent < 0)
         {
             fprintf(stderr, "ERROR, could not send\n");
             exit(ERROR);
         }
+        last_byte = send_buf[nbytes_read-1];
+        offset += nbytes_read;
     }
-    fclose(output_file);
+    // close(fd_read);
     pthread_mutex_unlock(&(thread_data->txn_mutex));
     
     // Close client for next transaction
     close(thread_data->client_fd);
     thread_data->thread_complete = true;
     // printf("DEBUG: file contents sent!\n");
-    printf("%s", send_buf);
+    // printf("%s", send_buf);
     return data;
 }
 
@@ -343,6 +372,9 @@ int main(int argc, char *argv[])
     pthread_mutex_t my_mutex;           // Same mutex is used for socket data
     pthread_mutex_init(&my_mutex, NULL);
     #if !USE_AESD_CHAR_DEVICE
+        // Make sure the file exists if not using chardev
+        int tmp_fd = open(OUTPUT_FILE_PATH, O_CREAT | O_RDWR | O_APPEND, 00666);
+        close(tmp_fd);
         init_timer();
         time_stamp(&my_mutex);
     #endif
