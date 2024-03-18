@@ -50,7 +50,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     // Guards
     if (f_pos == NULL || buf == NULL || filp == NULL)
     {
-        return -EINVAL;
+        return -ERESTARTSYS;
     }
 
     // Make vars
@@ -94,7 +94,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     // Guards
     if (filp == NULL || buf == NULL || f_pos == NULL)
     {
-        return -EINVAL;
+        return -ERESTARTSYS;
     }
     if (count == 0)
     {
