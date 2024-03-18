@@ -21,10 +21,17 @@
 #include <pthread.h>
 #include <sys/time.h>
 
+#define USE_AESD_CHAR_DEVICE 1
+
+#if USE_AESD_CHAR_DEVICE
+    #define OUTPUT_FILE_PATH "/dev/aesdchar"
+#else
+    #define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
+#endif
+
 #define PORT "9000"
 #define ERROR 0xFFFFFFFF
 #define BACKLOGS 5
-#define OUTPUT_FILE_PATH "/var/tmp/aesdsocketdata"
 
 #define RFC2822_FORMAT "timestamp:%a, %d %b %Y %T %z\n"
 #define MAX_TIME_SIZE 60
@@ -228,6 +235,7 @@ void *transaction(void *data)
 int main(int argc, char *argv[])
 {
     openlog("AESD Socket Log", 0, LOG_USER);
+    printf("DEBUG: OUTFILE is: %s\n", OUTPUT_FILE_PATH);
 
     // Determine if daemon
     bool daemon_flag = false;
@@ -331,11 +339,13 @@ int main(int argc, char *argv[])
         start_daemon();
     }
 
-    // Start timer
+    // Start mutex, timer
     pthread_mutex_t my_mutex;           // Same mutex is used for socket data
     pthread_mutex_init(&my_mutex, NULL);
-    init_timer();
-    time_stamp(&my_mutex);
+    #if !USE_AESD_CHAR_DEVICE
+        init_timer();
+        time_stamp(&my_mutex);
+    #endif
 
     // Listen
     if (listen(sock_fd, BACKLOGS) == ERROR)
@@ -391,11 +401,13 @@ int main(int argc, char *argv[])
         }
 
         // Check timer
-        if (timer_caught)
-        {
-            timer_caught = 0;
-            time_stamp(&my_mutex);
-        }
+        #if !USE_AESD_CHAR_DEVICE
+            if (timer_caught)
+            {
+                timer_caught = 0;
+                time_stamp(&my_mutex);
+            }
+        #endif
 
         // Remove completed threads
         struct thread_data_s *tmp_thread_data;
@@ -427,9 +439,11 @@ int main(int argc, char *argv[])
     pthread_mutex_destroy(&my_mutex);
     close(client_fd);
     close(sock_fd);
-    remove(OUTPUT_FILE_PATH);
     syslog(LOG_USER, "Caught signal: %s. Exiting!", strsignal(signal_caught));
     closelog();
-    printf("\nreturning successfully\n\n");
+    #if !USE_AESD_CHAR_DEVICE
+        remove(OUTPUT_FILE_PATH);
+    #endif
+
     return 0;
 }
