@@ -191,7 +191,7 @@ void *transaction(void *data)
         fwrite(recv_buf, nbytes_recv, 1, output_file);
     }
     fclose(output_file);
-    printf("DEBUG: wrote client buf to file\n");
+    // printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
     // Send back contents of output file
@@ -227,7 +227,7 @@ void *transaction(void *data)
     close(thread_data->client_fd);
     thread_data->thread_complete = true;
     // printf("DEBUG: file contents sent!\n");
-    printf("%s", send_buf);
+    // printf("%s", send_buf);
     return data;
 }
 
