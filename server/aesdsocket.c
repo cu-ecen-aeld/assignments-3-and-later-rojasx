@@ -191,7 +191,7 @@ void *transaction(void *data)
         // If we never detected a newline, just append without a newline
         write(fd, recv_buf, nbytes_recv);
     }
-    // close(fd_write);
+    fclose(output_file);
     // printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
