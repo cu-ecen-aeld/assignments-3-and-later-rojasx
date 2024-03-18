@@ -21,7 +21,7 @@
 #include <pthread.h>
 #include <sys/time.h>
 
-#define USE_AESD_CHAR_DEVICE 0
+#define USE_AESD_CHAR_DEVICE 1
 
 #if USE_AESD_CHAR_DEVICE
     #define OUTPUT_FILE_PATH "/dev/aesdchar"
@@ -166,11 +166,11 @@ void *transaction(void *data)
 
     // Lock data
     pthread_mutex_lock(&(thread_data->txn_mutex));
-
     fd = open(OUTPUT_FILE_PATH, O_RDWR | O_APPEND, 00666);
     if(fd == -1)
     {
-		fprintf(stderr, "ERROR opening output file for writing\n");
+		perror("ERROR");
+        fprintf(stderr, "ERROR opening output file for writing\n");
 		exit(ERROR);
 	}
 
@@ -192,13 +192,14 @@ void *transaction(void *data)
         write(fd, recv_buf, nbytes_recv);
     }
     // close(fd_write);
-    printf("DEBUG: wrote client buf to file\n");
+    // printf("DEBUG: wrote client buf to file\n");
 
     // -------------------------------------------------------------
     // Send back contents of output file
     // int fd_read;
     fd = open(OUTPUT_FILE_PATH, O_RDWR, 00666);
-    printf("DEBUG: opened file for reading\n");
+    // fd = open(OUTPUT_FILE_PATH, (O_CREAT | O_TRUNC | O_RDWR), (S_IRWXU | S_IRWXG | S_IRWXO));
+    // printf("DEBUG: opened file for reading\n");
     if(fd == -1)
     {
 		fprintf(stderr, "ERROR opening output file for reading\n");
