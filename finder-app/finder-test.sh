@@ -8,6 +8,23 @@ set -u
 NUMFILES=10
 WRITESTR=AELD_IS_FUN
 WRITEDIR=/tmp/aeld-data
+CALL_DIR=$PWD
+BASE_DIR=$(realpath $(dirname $0))
+EXE_DIR=$(realpath $(dirname $0))
+# BASE_DIR=$(dirname $0)
+# EXE_DIR=$(dirname $0)
+
+# Need to determine if we're on this machine or vm
+if [ $(basename $BASE_DIR) != "finder-app" ]; then
+	# Must be in etc
+	echo "Changing base dir to etc/finder-app"
+	BASE_DIR=/etc/finder-app
+fi
+
+# Very helpful prints, leave it
+cd $BASE_DIR
+echo "Base dir is: ${BASE_DIR}"
+echo "EXE dir is: ${EXE_DIR}"
 username=$(cat conf/username.txt)
 
 if [ $# -lt 3 ]
@@ -26,13 +43,12 @@ else
 fi
 
 MATCHSTR="The number of files are ${NUMFILES} and the number of matching lines are ${NUMFILES}"
-
 echo "Writing ${NUMFILES} files containing string ${WRITESTR} to ${WRITEDIR}"
-
 rm -rf "${WRITEDIR}"
 
 # create $WRITEDIR if not assignment1
-assignment=`cat ../conf/assignment.txt`
+# assignment=`cat conf/assignment.txt`
+assignment=$(cat ${BASE_DIR}/conf/assignment.txt)
 
 if [ $assignment != 'assignment1' ]
 then
@@ -47,21 +63,26 @@ then
 	else
 		exit 1
 	fi
+else
+	echo "Removing the old writer utility and compiling as a native application"
+	make clean
+	make
 fi
-#echo "Removing the old writer utility and compiling as a native application"
-make clean
-make
 
 for i in $( seq 1 $NUMFILES)
 do
 	# ./writer.sh "$WRITEDIR/${username}$i.txt" "$WRITESTR"
-	./writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
+	$EXE_DIR/writer "$WRITEDIR/${username}$i.txt" "$WRITESTR"
 done
 
-OUTPUTSTRING=$(./finder.sh "$WRITEDIR" "$WRITESTR")
+OUTPUTSTRING=$(${EXE_DIR}/finder.sh "$WRITEDIR" "$WRITESTR")
+
 
 # remove temporary directories
 rm -rf /tmp/aeld-data
+
+# New file gets output
+echo $OUTPUTSTRING > /tmp/assignment4-result.txt
 
 set +e
 echo ${OUTPUTSTRING} | grep "${MATCHSTR}"
